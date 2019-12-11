@@ -1,0 +1,16 @@
+info:
+  addr: :10001
+  name: network
+  id:
+log:
+  path: 
+  console: true
+  level: DEBUG
+cache:
+  path:
+  mmapsize: 
+  datasize: 
+  prealloc: 
+dump:
+  invertal: 5
+  addr: 
