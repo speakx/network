@@ -1,6 +1,7 @@
 package reactor
 
 import (
+	"net"
 	"network/bufpool"
 )
 
@@ -9,29 +10,29 @@ const (
 	MASK_WRITE = 0x2
 )
 
-var NetworkHandlerImp NetworkHandler
-
 type Reactor interface {
-	AddHandler(opt int, fd, pad int32)
-	ModHandler(opt int, fd, pad int32)
-	DelHandler(fd int32)
+	CreateReactor() error
+	DestroyReactor()
+	LoopReactor()
+	AddHandler(opt int, handler Handler)
+	ModHandler(opt int, handler Handler)
+	DelHandler(handler Handler)
 }
 
-type NetworkHandler interface {
-	OnRead(session Session, sb *bufpool.SlidingBuffer)
-	OnReadFinish(session Session)
+type Handler interface {
+	Info() string
+	GetId() int32
+	GetFD() int32
+
+	DoRead() (*bufpool.SlidingBuffer, error)
+	DoWrite() (int, error)
+	DoClose()
+
+	OnOpen()
+	OnClose()
+	OnRead()
 }
 
 type Session interface {
-	Sid() int32
-	FD() int32
-	Addr() string
-	Close()
-	OnRead() (*bufpool.SlidingBuffer, error)
-	OnWrite() (int, error)
-	SendString(v string) error
-}
-
-func InitNetworkHandler(handler NetworkHandler) {
-	NetworkHandlerImp = handler
+	InitBaseSession(conn net.Conn, sid int32, reactor Reactor) error
 }

@@ -1,46 +1,101 @@
 package server
 
 import (
-	"errors"
+	"fmt"
 	"net"
 	"network/bufpool"
+	"network/idmaker"
 	"network/reactor"
+	"network/register"
 	"time"
 
 	"environment/logger"
-
-	"golang.org/x/sys/unix"
 )
 
 type Server struct {
-	events        []unix.EpollEvent
-	sidToSessions map[int32]reactor.Session
-	sidCounter    int32
-	listener      net.Listener
-	fdEpoll       int
-	onAcceptfn    func(net.Conn) (reactor.Session, error)
+	sid          int32
+	lnFD         int32
+	listener     net.Listener
+	epollReactor *reactor.EpollReactor
 }
 
-func newServer(maxEvent, bufSize, bufPoolSize int, bufPoolRecyleDur time.Duration,
-	onAcceptfn func(net.Conn) (reactor.Session, error)) *Server {
+func newServer(maxEvent, bufSize, bufPoolSize int, bufPoolRecyleDur time.Duration) *Server {
 	bufpool.InitBufPool(bufSize, bufPoolSize, bufPoolRecyleDur)
 	return &Server{
-		events:        make([]unix.EpollEvent, maxEvent),
-		sidToSessions: make(map[int32]reactor.Session),
-		sidCounter:    0,
-		onAcceptfn:    onAcceptfn,
+		sid:          idmaker.MakeSidSafeLock(),
+		epollReactor: reactor.NewEpollReactor(maxEvent),
 	}
+}
+
+func (s *Server) Info() string {
+	return fmt.Sprintf("Server addr:%v", s.listener.Addr())
+}
+
+func (s *Server) GetId() int32 {
+	return s.sid
+}
+
+func (s *Server) GetFD() int32 {
+	return s.lnFD
+}
+
+func (s *Server) DoRead() (*bufpool.SlidingBuffer, error) {
+	// accept
+	conn, err := s.listener.Accept()
+	if nil != err {
+		logger.Error("Server Accept err:", err)
+		return nil, err
+	}
+	logger.Info("Server.Accept addr:", conn.RemoteAddr())
+
+	// create session
+	session := register.DefFactory.CreateSession()
+	err = session.(reactor.Session).InitBaseSession(conn, idmaker.MakeSidSafeLock(), s.epollReactor)
+	if nil != err {
+		logger.Error("Server Accept -> CreateSession err:", err)
+		conn.Close()
+		return nil, err
+	}
+	session.OnOpen()
+	s.epollReactor.AddHandler(reactor.MASK_READ, session)
+
+	return bufpool.NewSlidingBuffer(0), nil
+}
+
+func (s *Server) DoWrite() (int, error) {
+	return 0, nil
+}
+
+func (s *Server) DoClose() {
+	logger.Debug("Server.DoClose info:", s.Info())
+	s.listener.Close()
+	s.listener = nil
+
+	s.epollReactor.DestroyReactor()
+	s.epollReactor = nil
+}
+
+func (s *Server) OnOpen() {
+}
+
+func (s *Server) OnClose() {
+}
+
+func (s *Server) OnRead() {
 }
 
 func (s *Server) run(network, addr string) error {
 	// create listener
-	ln, err := net.Listen(network, addr)
+	var err error
+	s.listener, err = net.Listen(network, addr)
 	if nil != err {
 		logger.Error("Server Listen err:", err)
 		return err
 	}
+
+	// get fd
 	var fdListen uintptr
-	syscallListen, err := ln.(*net.TCPListener).SyscallConn()
+	syscallListen, err := s.listener.(*net.TCPListener).SyscallConn()
 	if nil != err {
 		logger.Error("Server Listen.SyscallConn err:", err)
 		return err
@@ -50,71 +105,12 @@ func (s *Server) run(network, addr string) error {
 		logger.Error("Server Listen.SyscallConn.Control err:", err)
 		return err
 	}
-	s.listener = ln
-
-	// create epoll
-	fdEpoll, err := unix.EpollCreate1(unix.EPOLL_CLOEXEC)
-	if nil != err {
-		logger.Error("Server EpollCreate1 err:", err)
-		return err
-	}
-	defer unix.Close(fdEpoll)
-	s.fdEpoll = fdEpoll
+	s.lnFD = int32(fdListen)
 
 	// register listen epoll
-	s.AddHandler(reactor.MASK_READ, int32(fdListen), int32(0))
-	s.handleEpollEvent(fdEpoll)
-
-	return nil
-}
-
-func (s *Server) genSessionid() int32 {
-	s.sidCounter++
-	return s.sidCounter
-}
-
-func (s *Server) addSession(session reactor.Session) {
-	s.sidToSessions[session.Sid()] = session
-	logger.Info("Server session add addr:", session.Addr())
-}
-
-func (s *Server) removeSession(session reactor.Session) {
-	s.DelHandler(int32(session.FD()))
-
-	delete(s.sidToSessions, session.Sid())
-	session.Close()
-	logger.Info("Server session remove addr:", session.Addr())
-}
-
-func (s *Server) sidToSession(sid int32) reactor.Session {
-	session, _ := s.sidToSessions[sid]
-	return session
-}
-
-func (s *Server) onListen() error {
-	// do accept
-	conn, err := s.listener.Accept()
-	if nil != err {
-		logger.Error("Server Accept err:", err)
-		return err
-	}
-	logger.Info("Server.Accept addr:", conn.RemoteAddr())
-
-	// make session
-	session, err := s.onAcceptfn(conn)
-	if nil != err {
-		logger.Error("Server onAccept err:", err)
-		return err
-	}
-	if nil == session {
-		logger.Error("Server onAccept session is nil")
-		return errors.New("create session failed")
-	}
-	s.addSession(session)
-	logger.Info("Server.Accept session sid:", session.Sid(), " fd:", session.FD())
-
-	// register session.read
-	s.AddHandler(reactor.MASK_READ, session.FD(), session.Sid())
+	s.epollReactor.CreateReactor()
+	s.epollReactor.AddHandler(reactor.MASK_READ, s)
+	s.epollReactor.LoopReactor()
 
 	return nil
 }

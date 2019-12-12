@@ -1,9 +1,6 @@
 package server
 
 import (
-	"net"
-	"network/reactor"
-	"network/session"
 	"time"
 )
 
@@ -11,7 +8,11 @@ type TCPServer struct {
 	*Server
 }
 
-func NewTCPServer(maxEvent, bufSize, bufPoolSize int, bufPoolRecyleDur time.Duration) *TCPServer {
+func NewTCPServer() *TCPServer {
+	return &TCPServer{}
+}
+
+func (tcps *TCPServer) Run(addr string, maxEvent, bufSize, bufPoolSize int, bufPoolRecyleDur time.Duration) error {
 	if 0 == maxEvent {
 		maxEvent = 0xFFFFF
 	}
@@ -25,18 +26,6 @@ func NewTCPServer(maxEvent, bufSize, bufPoolSize int, bufPoolRecyleDur time.Dura
 		bufPoolRecyleDur = 1 * time.Second
 	}
 
-	s := &TCPServer{}
-	s.Server = newServer(
-		maxEvent, bufSize, bufPoolSize, bufPoolRecyleDur,
-		s.onAccept)
-	return s
-}
-
-func (tcps *TCPServer) Run(addr string) error {
+	tcps.Server = newServer(maxEvent, bufSize, bufPoolSize, bufPoolRecyleDur)
 	return tcps.run("tcp", addr)
-}
-
-func (tcps *TCPServer) onAccept(conn net.Conn) (reactor.Session, error) {
-	tcpConn := conn.(*net.TCPConn)
-	return session.NewTCPSession(tcpConn, tcps.genSessionid(), tcps)
 }

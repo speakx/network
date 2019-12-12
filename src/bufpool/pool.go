@@ -31,9 +31,8 @@ func InitBufPool(bufSize int, poolSize int, recycleDur time.Duration) {
 			allocator:  make(chan []byte),
 			collector:  make(chan []byte),
 		}
+		DefBufPool.loop()
 	})
-
-	DefBufPool.loop()
 }
 
 func (b *BufPool) Alloc() []byte {

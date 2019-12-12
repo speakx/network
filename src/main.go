@@ -4,9 +4,9 @@ import (
 	"environment/cfgargs"
 	"environment/logger"
 	"fmt"
-	"network/bufpool"
-	"network/reactor"
+	"network/register"
 	"network/server"
+	"network/session"
 )
 
 var (
@@ -25,19 +25,27 @@ func main() {
 	logger.InitLogger(srvCfg.Log.Path, srvCfg.Log.Console, srvCfg.Log.Level)
 	logger.Info("end init log")
 
-	reactor.InitNetworkHandler(&NetworkHandlerImp{})
-	srv := server.NewTCPServer(0, 0, 0, 0)
-	srv.Run(srvCfg.Info.Addr)
+	register.RegisterSession(MySession{})
+	srv := server.NewTCPServer()
+	srv.Run(srvCfg.Info.Addr, 0, 0, 0, 0)
 }
 
-type NetworkHandlerImp struct {
+type MySession struct {
+	session.BaseSession
 }
 
-func (n *NetworkHandlerImp) OnRead(session reactor.Session, sb *bufpool.SlidingBuffer) {
-	logger.Debug("onread sid:", session.Sid(), " data:", sb.Read(0))
-	session.SendString("Hehe")
+func (m *MySession) OnOpen() {
+	logger.Debugf("MySession.OnOpen")
 }
 
-func (n *NetworkHandlerImp) OnReadFinish(session reactor.Session) {
+func (m *MySession) OnClose() {
+	logger.Debugf("MySession.OnClose")
+}
 
+func (m *MySession) OnRead() {
+	sb := m.BaseSession.ReadBuffer.FrontSlidingBuffer()
+	logger.Debugf("MySession.OnRead %v", sb.Read(0))
+	m.BaseSession.ReadBuffer.RemoveFrontSlidingBuffer()
+
+	m.SendString("Meizizi")
 }
