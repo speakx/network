@@ -12,9 +12,12 @@ func NewTCPServer() *TCPServer {
 	return &TCPServer{}
 }
 
-func (tcps *TCPServer) Run(addr string, maxEvent, bufSize, bufPoolSize int, bufPoolRecyleDur time.Duration) error {
+func (tcps *TCPServer) Run(addr string, maxEvent, goroutineLimit, bufSize, bufPoolSize int, bufPoolRecyleDur time.Duration) error {
 	if 0 == maxEvent {
 		maxEvent = 0xFFFFF
+	}
+	if 0 == goroutineLimit {
+		goroutineLimit = 200
 	}
 	if 0 == bufSize {
 		bufSize = 1024 * 1024
@@ -26,6 +29,6 @@ func (tcps *TCPServer) Run(addr string, maxEvent, bufSize, bufPoolSize int, bufP
 		bufPoolRecyleDur = 1 * time.Second
 	}
 
-	tcps.Server = newServer(maxEvent, bufSize, bufPoolSize, bufPoolRecyleDur)
+	tcps.Server = newServer(maxEvent, goroutineLimit, bufSize, bufPoolSize, bufPoolRecyleDur)
 	return tcps.run("tcp", addr)
 }

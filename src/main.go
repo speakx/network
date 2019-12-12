@@ -27,7 +27,7 @@ func main() {
 
 	register.RegisterSession(MySession{})
 	srv := server.NewTCPServer()
-	srv.Run(srvCfg.Info.Addr, 0, 0, 0, 0)
+	srv.Run(srvCfg.Info.Addr, 0, 0, 0, 0, 0)
 }
 
 type MySession struct {

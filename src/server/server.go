@@ -19,11 +19,11 @@ type Server struct {
 	epollReactor *reactor.EpollReactor
 }
 
-func newServer(maxEvent, bufSize, bufPoolSize int, bufPoolRecyleDur time.Duration) *Server {
+func newServer(maxEvent, goroutineLimit, bufSize, bufPoolSize int, bufPoolRecyleDur time.Duration) *Server {
 	bufpool.InitBufPool(bufSize, bufPoolSize, bufPoolRecyleDur)
 	return &Server{
 		sid:          idmaker.MakeSidSafeLock(),
-		epollReactor: reactor.NewEpollReactor(maxEvent),
+		epollReactor: reactor.NewEpollReactor(maxEvent, goroutineLimit),
 	}
 }
 

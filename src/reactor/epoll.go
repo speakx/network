@@ -8,20 +8,22 @@ import (
 )
 
 type EpollReactor struct {
-	epollFD      int
-	events       []unix.EpollEvent
-	padToHandler map[int32]Handler
-	onReadChan   chan Handler
-	onCloseChan  chan Handler
+	epollFD             int
+	events              []unix.EpollEvent
+	padToHandler        map[int32]Handler
+	onReadChan          chan Handler
+	onCloseChan         chan Handler
+	onReadGoroutineLock chan bool
 	sync.Mutex
 }
 
-func NewEpollReactor(maxEvent int) *EpollReactor {
+func NewEpollReactor(maxEvent, goroutineLimit int) *EpollReactor {
 	return &EpollReactor{
-		events:       make([]unix.EpollEvent, maxEvent),
-		padToHandler: make(map[int32]Handler),
-		onReadChan:   make(chan Handler, maxEvent),
-		onCloseChan:  make(chan Handler, maxEvent),
+		events:              make([]unix.EpollEvent, maxEvent),
+		padToHandler:        make(map[int32]Handler),
+		onReadChan:          make(chan Handler, maxEvent),
+		onCloseChan:         make(chan Handler, maxEvent),
+		onReadGoroutineLock: make(chan bool, goroutineLimit),
 	}
 }
 
@@ -185,8 +187,20 @@ func (e *EpollReactor) loopOnReadEvent() {
 			return
 		}
 
-		handler.OnRead()
+		e.goroutineAcquire()
+		go func() {
+			handler.OnRead()
+			e.goroutineRelease()
+		}()
 	}
+}
+
+func (e *EpollReactor) goroutineAcquire() {
+	e.onReadGoroutineLock <- true
+}
+
+func (e *EpollReactor) goroutineRelease() {
+	<-e.onReadGoroutineLock
 }
 
 func (e *EpollReactor) loopOnCloseEvent() {
