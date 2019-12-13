@@ -104,9 +104,7 @@ func (b *BaseSession) DoClose() {
 	logger.Debug("BaseSession.DoClose info:", b.Info())
 	if nil != b.conn {
 		b.conn.Close()
-		b.conn = nil
 	}
-	b.reactor = nil
 
 	for {
 		sb := b.WriteBuffer.FrontSlidingBuffer()
@@ -141,8 +139,6 @@ func (b *BaseSession) WriteString(v string) error {
 	if false == b.WriteBuffer.PushSlidingBuffer(sb) {
 		return fmt.Errorf("session send string, circle sliding buffer overflow")
 	}
-	b.reactor.ModHandler(
-		reactor.MASK_READ|reactor.MASK_WRITE,
-		b)
+	b.reactor.ModHandler(reactor.MASK_READ|reactor.MASK_WRITE, b)
 	return nil
 }

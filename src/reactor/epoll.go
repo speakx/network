@@ -40,7 +40,7 @@ func (e *EpollReactor) AddHandler(opt int, handler Handler) {
 	e.registerHandler(handler)
 	err := e.registerEpollHandler(unix.EPOLL_CTL_ADD, opt, handler.GetFD(), handler.GetId())
 	if nil != err {
-		logger.Error("Reactor.Epoll.AddHandler err:", err)
+		logger.Error("Reactor.Epoll.AddHandler fd:", handler.GetFD(), " opt:", opt, " sid:", handler.GetId(), " err:", err)
 		panic(err)
 	}
 	logger.Debug("Reactor.Epoll.AddHandler fd:", handler.GetFD(), " opt:", opt, " sid:", handler.GetId())
@@ -49,8 +49,8 @@ func (e *EpollReactor) AddHandler(opt int, handler Handler) {
 func (e *EpollReactor) ModHandler(opt int, handler Handler) {
 	err := e.registerEpollHandler(unix.EPOLL_CTL_MOD, opt, handler.GetFD(), handler.GetId())
 	if nil != err {
-		logger.Error("Reactor.Epoll.ModHandler err:", err)
-		panic(err)
+		logger.Warn("Reactor.Epoll.ModHandler fd:", handler.GetFD(), " opt:", opt, " sid:", handler.GetId(), " err:", err)
+		return
 	}
 	logger.Debug("Reactor.Epoll.ModHandler fd:", handler.GetFD(), " opt:", opt, " sid:", handler.GetId())
 }
