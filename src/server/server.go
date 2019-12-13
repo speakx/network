@@ -56,8 +56,8 @@ func (s *Server) DoRead() (*bufpool.SlidingBuffer, error) {
 		conn.Close()
 		return nil, err
 	}
-	session.OnOpen()
 	s.epollReactor.AddHandler(reactor.MASK_READ, session)
+	session.OnOpen()
 
 	return bufpool.NewSlidingBuffer(0), nil
 }

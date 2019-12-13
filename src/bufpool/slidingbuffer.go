@@ -21,9 +21,11 @@ func NewSlidingBuffer(preAlloc int) *SlidingBuffer {
 	return ret
 }
 
-func (s *SlidingBuffer) Release() {
+func (s *SlidingBuffer) ReleaseSlidingBuffer() {
 	DefBufPool.Collect(s.data)
-	s.data = nil
+	// s.data = nil
+	// s.writePos = 0
+	// s.readPos = 0
 }
 
 func (s *SlidingBuffer) Reset() {
@@ -35,19 +37,29 @@ func (s *SlidingBuffer) WriteLen() int {
 	return s.writePos
 }
 
-func (s *SlidingBuffer) Write(data []byte) bool {
-	if len(data) <= (len(s.data) - s.writePos) {
-		copy(s.data[s.writePos:], data)
-		s.writePos += len(data)
-		return true
+func (s *SlidingBuffer) Write(data []byte) int {
+	n := len(data)
+	if n > (len(s.data) - s.writePos) {
+		n = len(s.data) - s.writePos
 	}
-	return false
+
+	copy(s.data[s.writePos:], data[:n])
+	s.writePos += n
+	return n
 }
 
-func (s *SlidingBuffer) Read(n int) []byte {
+func (s *SlidingBuffer) GetWrited(n int) []byte {
 	if n != 0 {
 		s.readPos += n
 		return s.data[s.readPos:s.writePos]
 	}
 	return s.data[s.readPos:s.writePos]
+}
+
+func (s *SlidingBuffer) GetFreeData() []byte {
+	return s.data[s.writePos:]
+}
+
+func (s *SlidingBuffer) AddWritePos(n int) {
+	s.writePos += n
 }

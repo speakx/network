@@ -37,7 +37,7 @@ func (c *CircleSlidingBuffer) FrontSlidingBuffer() *SlidingBuffer {
 
 func (c *CircleSlidingBuffer) RemoveFrontSlidingBuffer() {
 	sb := c.slidingBuffers[c.curReadPos]
-	sb.Release()
+	sb.ReleaseSlidingBuffer()
 	c.curReadPos++
 
 	if c.curReadPos >= len(c.slidingBuffers) {

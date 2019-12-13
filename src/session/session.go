@@ -60,7 +60,11 @@ func (b *BaseSession) DoRead() (*bufpool.SlidingBuffer, error) {
 	buf := bufpool.DefBufPool.Alloc()
 	n, err := b.conn.Read(buf)
 	sb := bufpool.NewSlidingBufferWithData(buf, n)
-	b.ReadBuffer.PushSlidingBuffer(sb)
+	if false == b.ReadBuffer.PushSlidingBuffer(sb) {
+		logger.Error("BaseSession.DoRead overflow, info:", b.Info())
+		sb.ReleaseSlidingBuffer()
+		sb = nil
+	}
 	return sb, err
 }
 
@@ -72,10 +76,10 @@ func (b *BaseSession) DoWrite() (int, error) {
 			break
 		}
 
-		writeBytes := sb.Read(0)
+		writeBytes := sb.GetWrited(0)
 		n1 := len(writeBytes)
 		n, err := b.conn.Write(writeBytes)
-		needWriteBytes := sb.Read(n)
+		needWriteBytes := sb.GetWrited(n)
 		write += n
 
 		if len(needWriteBytes) == 0 {
@@ -109,7 +113,7 @@ func (b *BaseSession) DoClose() {
 		if nil == sb {
 			break
 		}
-		sb.Release()
+		sb.ReleaseSlidingBuffer()
 		b.WriteBuffer.RemoveFrontSlidingBuffer()
 	}
 	for {
@@ -117,7 +121,7 @@ func (b *BaseSession) DoClose() {
 		if nil == sb {
 			break
 		}
-		sb.Release()
+		sb.ReleaseSlidingBuffer()
 		b.ReadBuffer.RemoveFrontSlidingBuffer()
 	}
 }

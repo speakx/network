@@ -2,17 +2,27 @@ package reactor
 
 import (
 	"environment/logger"
+	"fmt"
 	"sync"
 
 	"golang.org/x/sys/unix"
 )
 
+const (
+	handlerEventOnRead = iota
+	handlerEventOnClose
+)
+
+type handlerEvent struct {
+	handler Handler
+	event   int
+}
+
 type EpollReactor struct {
 	epollFD             int
 	events              []unix.EpollEvent
 	padToHandler        map[int32]Handler
-	onReadChan          chan Handler
-	onCloseChan         chan Handler
+	onHandlerEventChan  chan *handlerEvent
 	onReadGoroutineLock chan bool
 	sync.Mutex
 }
@@ -21,8 +31,7 @@ func NewEpollReactor(maxEvent, goroutineLimit int) *EpollReactor {
 	return &EpollReactor{
 		events:              make([]unix.EpollEvent, maxEvent),
 		padToHandler:        make(map[int32]Handler),
-		onReadChan:          make(chan Handler, maxEvent),
-		onCloseChan:         make(chan Handler, maxEvent),
+		onHandlerEventChan:  make(chan *handlerEvent, maxEvent),
 		onReadGoroutineLock: make(chan bool, goroutineLimit),
 	}
 }
@@ -66,21 +75,23 @@ func (e *EpollReactor) registerEpollHandler(epollOp, opt int, fd, pad int32) err
 
 	event := &unix.EpollEvent{
 		Events: events,
+		Fd:     fd,
 		Pad:    pad,
 	}
 	return unix.EpollCtl(e.epollFD, epollOp, int(fd), event)
 }
 
 func (e *EpollReactor) unregisterEpollHandler(fd, pad int32) error {
-	return unix.EpollCtl(e.epollFD, unix.EPOLL_CTL_DEL, int(fd), nil)
+	event := &unix.EpollEvent{
+		Fd:  fd,
+		Pad: pad,
+	}
+	return unix.EpollCtl(e.epollFD, unix.EPOLL_CTL_DEL, int(fd), event)
 }
 
 func (e *EpollReactor) CreateReactor() error {
 	go func() {
-		e.loopOnReadEvent()
-	}()
-	go func() {
-		e.loopOnCloseEvent()
+		e.loopHandlerEvent()
 	}()
 
 	var err error
@@ -105,91 +116,94 @@ func (e *EpollReactor) LoopReactor() {
 			panic(err)
 		}
 
-		logger.Debug("Reactor.Epoll.Wait n:", n, " err:", err)
+		logger.Debug("Reactor.Epoll.Wait events loop start n:", n, " err:", err)
 		for i := 0; i < n; i++ {
-			if e.events[i].Events&unix.POLLPRI == unix.POLLPRI {
-				logger.Error("Reactor.Epoll.Wait event:POLLPRI event.fd:", e.events[i].Fd, " event.sid:", e.events[i].Pad)
-			}
-			if e.events[i].Events&unix.POLLRDHUP == unix.POLLRDHUP {
-				logger.Error("Reactor.Epoll.Wait event:POLLRDHUP event.fd:", e.events[i].Fd, " event.sid:", e.events[i].Pad)
-			}
-			if e.events[i].Events&unix.POLLNVAL == unix.POLLNVAL {
-				logger.Error("Reactor.Epoll.Wait event:POLLNVAL event.fd:", e.events[i].Fd, " event.sid:", e.events[i].Pad)
-			}
-
 			// error
-			if e.events[i].Events&unix.POLLERR == unix.POLLERR || e.events[i].Events&unix.POLLHUP == unix.POLLHUP {
+			if e.events[i].Events&unix.POLLERR == unix.POLLERR || e.events[i].Events&unix.POLLHUP == unix.POLLHUP || e.events[i].Events&unix.POLLNVAL == unix.POLLNVAL || e.events[i].Events&unix.POLLRDHUP == unix.POLLRDHUP {
 				if e.events[i].Events&unix.POLLERR == unix.POLLERR {
-					logger.Info("Reactor.Epoll.Wait event:POLLERR event.fd:", e.events[i].Fd, " event.sid:", e.events[i].Pad)
-				} else {
-					logger.Info("Reactor.Epoll.Wait event:POLLHUP event.fd:", e.events[i].Fd, " event.sid:", e.events[i].Pad)
+					logger.Info("Reactor.Epoll.Wait event[", i, "]:POLLERR event.fd:", e.events[i].Fd, " event.sid:", e.events[i].Pad)
+				} else if e.events[i].Events&unix.POLLHUP == unix.POLLHUP {
+					logger.Info("Reactor.Epoll.Wait event[", i, "]:POLLHUP event.fd:", e.events[i].Fd, " event.sid:", e.events[i].Pad)
+				} else if e.events[i].Events&unix.POLLNVAL == unix.POLLNVAL {
+					logger.Info("Reactor.Epoll.Wait event[", i, "]:POLLNVAL event.fd:", e.events[i].Fd, " event.sid:", e.events[i].Pad)
+				} else if e.events[i].Events&unix.POLLRDHUP == unix.POLLRDHUP {
+					logger.Info("Reactor.Epoll.Wait event[", i, "]:POLLRDHUP event.fd:", e.events[i].Fd, " event.sid:", e.events[i].Pad)
 				}
 				handler := e.findHandler(e.events[i].Pad)
 				if nil == handler {
-					logger.Error("Reactor.Epoll.Wait event:POLLERR|event:POLLHUP event.fd:", e.events[i].Fd, " hander not found")
+					logger.Error("Reactor.Epoll.Wait event[", i, "]:POLLERR|POLLHUP|POLLNVAL|POLLRDHUP event.fd:", e.events[i].Fd, " event.sid:", e.events[i].Pad, " hander not found")
 					e.unregisterEpollHandler(e.events[i].Fd, e.events[i].Pad)
 					continue
 				}
 				e.DelHandler(handler)
-				e.onCloseChan <- handler
+				e.onHandlerEventChan <- &handlerEvent{event: handlerEventOnClose, handler: handler}
 				continue
 			}
 
-			// read
+			// read  || e.events[i].Events&unix.POLLPRI == unix.POLLPRI
 			if e.events[i].Events&unix.POLLIN == unix.POLLIN {
-				logger.Debug("Reactor.Epoll.Wait event:POLLIN event.fd:", e.events[i].Fd, " event.sid:", e.events[i].Pad)
+				logger.Debug("Reactor.Epoll.Wait event[", i, "]:POLLIN|POLLPRI event.fd:", e.events[i].Fd, " event.sid:", e.events[i].Pad)
 				handler := e.findHandler(e.events[i].Pad)
 				if nil == handler {
-					logger.Error("Reactor.Epoll.Wait event:POLLIN event.fd:", e.events[i].Fd, " hander not found")
+					logger.Error("Reactor.Epoll.Wait event[", i, "]:POLLIN|POLLPRI event.fd:", e.events[i].Fd, " event.sid:", e.events[i].Pad, " hander not found")
 					e.unregisterEpollHandler(e.events[i].Fd, e.events[i].Pad)
 					continue
 				}
 
 				sb, err := handler.DoRead()
-				logger.Debug("Reactor.Epoll.Wait event:POLLIN event.fd:", e.events[i].Fd,
-					" event.sid:", e.events[i].Pad, " read:", sb.WriteLen(), " err:", err)
+				logger.Debug("Reactor.Epoll.Wait event[", i, "]:POLLIN|POLLPRI event.fd:", e.events[i].Fd, " event.sid:", e.events[i].Pad, " read:", sb.WriteLen(), " err:", err)
 				if nil != err {
-					logger.Error("Reactor.Epoll.Wait POLLIN err:", err)
+					logger.Error("Reactor.Epoll.Wait event[", i, "]:POLLIN|POLLPRI event.fd:", e.events[i].Fd, " event.sid:", e.events[i].Pad, " err:", err)
 					e.DelHandler(handler)
-					e.onCloseChan <- handler
+					e.onHandlerEventChan <- &handlerEvent{event: handlerEventOnClose, handler: handler}
 				}
 
 				if nil != sb && sb.WriteLen() > 0 {
-					e.onReadChan <- handler
+					e.onHandlerEventChan <- &handlerEvent{event: handlerEventOnRead, handler: handler}
 				}
 			}
 
 			// write
 			if e.events[i].Events&unix.POLLOUT == unix.POLLOUT {
-				logger.Debug("Reactor.Epoll.Wait event:POLLOUT event.fd:", e.events[i].Fd, " event.Pad:", e.events[i].Pad)
+				logger.Debug("Reactor.Epoll.Wait event[", i, "]:POLLOUT event.fd:", e.events[i].Fd, " event.Pad:", e.events[i].Pad)
 				handler := e.findHandler(e.events[i].Pad)
 				if nil == handler {
-					logger.Error("Reactor.Epoll.Wait event:POLLOUT event.fd:", e.events[i].Fd, " hander not found")
+					logger.Error("Reactor.Epoll.Wait event[", i, "]:POLLOUT event.fd:", e.events[i].Fd, " event.sid:", e.events[i].Pad, " hander not found")
 					e.unregisterEpollHandler(e.events[i].Fd, e.events[i].Pad)
 					continue
 				}
 
 				n, err := handler.DoWrite()
-				logger.Debug("Reactor.Epoll.Wait event:POLLOUT event.fd:", e.events[i].Fd,
-					" event.sid:", e.events[i].Pad, " write:", n, " err:", err)
+				logger.Debug("Reactor.Epoll.Wait event[", i, "]:POLLOUT event.fd:", e.events[i].Fd, " event.sid:", e.events[i].Pad, " write:", n, " err:", err)
 				if nil != err {
+					logger.Error("Reactor.Epoll.Wait event[", i, "]:POLLOUT event.fd:", e.events[i].Fd, " event.sid:", e.events[i].Pad, " err:", err)
 					e.DelHandler(handler)
+					e.onHandlerEventChan <- &handlerEvent{event: handlerEventOnClose, handler: handler}
 				}
 			}
 		}
+		logger.Debug("Reactor.Epoll.Wait events loop end n:", n, " err:", err)
 	}
 }
 
-func (e *EpollReactor) loopOnReadEvent() {
+func (e *EpollReactor) loopHandlerEvent() {
 	for {
-		handler, ok := <-e.onReadChan
+		he, ok := <-e.onHandlerEventChan
 		if false == ok {
 			return
 		}
 
 		e.goroutineAcquire()
 		go func() {
-			handler.OnRead()
+			switch he.event {
+			case handlerEventOnRead:
+				he.handler.OnRead()
+			case handlerEventOnClose:
+				he.handler.OnClose()
+				he.handler.DoClose()
+			default:
+				panic(fmt.Errorf("unsupport handler.event:%v", he.event))
+			}
 			e.goroutineRelease()
 		}()
 	}
@@ -203,30 +217,18 @@ func (e *EpollReactor) goroutineRelease() {
 	<-e.onReadGoroutineLock
 }
 
-func (e *EpollReactor) loopOnCloseEvent() {
-	for {
-		handler, ok := <-e.onCloseChan
-		if false == ok {
-			return
-		}
-
-		handler.OnClose()
-		handler.DoClose()
-	}
-}
-
 func (e *EpollReactor) registerHandler(handler Handler) {
 	e.Lock()
 	e.padToHandler[handler.GetId()] = handler
 	e.Unlock()
-	logger.Info("Reactor.Epoll.Handler register:", handler.Info())
+	logger.Info("Reactor.Epoll.Handler register fd:", handler.GetFD(), " sid:", handler.GetId(), " ", handler.Info())
 }
 
 func (e *EpollReactor) unregisterHandler(handler Handler) {
 	e.Lock()
 	delete(e.padToHandler, handler.GetId())
 	e.Unlock()
-	logger.Info("Reactor.Epoll.Handler unregister:", handler.Info())
+	logger.Info("Reactor.Epoll.Handler unregister fd:", handler.GetFD(), " sid:", handler.GetId(), " ", handler.Info())
 }
 
 func (e *EpollReactor) findHandler(pad int32) Handler {
