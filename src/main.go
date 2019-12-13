@@ -2,6 +2,7 @@ package main
 
 import (
 	"environment/cfgargs"
+	"environment/dump"
 	"environment/logger"
 	"flag"
 	"fmt"
@@ -42,9 +43,24 @@ func main() {
 		logger.InitLogger(srvCfg.Log.Path+".client", srvCfg.Log.Console, srvCfg.Log.Level)
 		logger.Info("end init log")
 
-		c := &MyClient{}
-		client.TCPClientConnect(":10001", time.Second, c)
-		logger.Info("client.connect...", c)
+		dump.InitDump(true, srvCfg.Dump.Interval, srvCfg.Dump.Addr,
+			func(packetRecv, packetSend, packetRecvHandleRate, packetSendHandleRate int64) {
+				logger.Info("dump rate recv:", packetRecvHandleRate, " send:", packetSendHandleRate)
+			})
+
+		for i := 0; i < 100; i++ {
+			go func() {
+				c := &MyClient{}
+				client.TCPClientConnect("10.211.55.28:10001", time.Second, c)
+				logger.Info("client.connect...", c)
+				for {
+					dump.NetEventSendIncr(0)
+					c.WriteString("meizizi")
+					dump.NetEventSendDecr(0)
+				}
+			}()
+		}
+
 		w := sync.WaitGroup{}
 		w.Add(1)
 		w.Wait()
@@ -57,7 +73,7 @@ type MySession struct {
 
 func (m *MySession) OnOpen() {
 	logger.Debugf("MySession.OnOpen")
-	m.SendString("Hello Client - from server")
+	m.WriteString("Hello Client - from server")
 }
 
 func (m *MySession) OnClose() {
@@ -71,7 +87,7 @@ func (m *MySession) OnRead() {
 		m.BaseSession.ReadBuffer.RemoveFrontSlidingBuffer()
 	}
 
-	// m.SendString("Meizizi")
+	m.WriteString("echo...")
 }
 
 type MyClient struct {

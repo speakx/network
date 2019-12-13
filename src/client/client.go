@@ -24,7 +24,7 @@ type BaseClientHandler interface {
 }
 
 func TCPClientConnect(addr string, timeout time.Duration, c ClientHandler) {
-	bufpool.InitBufPool(1024*1024, 512, 1)
+	bufpool.InitBufPool(1024*256, 512, time.Second*2)
 	c.(BaseClientHandler).InitClient("tcp", addr, timeout, c)
 }
 
@@ -49,4 +49,9 @@ func (b *BaseClient) InitClient(network, addr string, timeout time.Duration, c C
 }
 
 func (b *BaseClient) OnRead(sb *bufpool.SlidingBuffer) {
+}
+
+func (b *BaseClient) WriteString(v string) error {
+	b.cio.write([]byte(v))
+	return nil
 }

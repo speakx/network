@@ -2,6 +2,7 @@ package client
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"network/bufpool"
 	"sync"
@@ -13,6 +14,17 @@ type connio struct {
 	conn    net.Conn
 	readBuf *bufpool.SlidingBuffer
 	sync.Mutex
+}
+
+func (c *connio) write(p []byte) (n int, err error) {
+	c.Lock()
+	if nil != c.conn {
+		n, err = c.conn.Write(p)
+	} else {
+		err = io.EOF
+	}
+	c.Unlock()
+	return n, err
 }
 
 func (c *connio) connect() {

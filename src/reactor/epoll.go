@@ -151,14 +151,15 @@ func (e *EpollReactor) LoopReactor() {
 				}
 
 				sb, err := handler.DoRead()
-				logger.Debug("Reactor.Epoll.Wait event[", i, "]:POLLIN|POLLPRI event.fd:", e.events[i].Fd, " event.sid:", e.events[i].Pad, " read:", sb.WriteLen(), " err:", err)
+				logger.Debug("Reactor.Epoll.Wait event[", i, "]:POLLIN|POLLPRI event.fd:", e.events[i].Fd, " event.sid:", e.events[i].Pad, " read err:", err)
 				if nil != err {
 					logger.Error("Reactor.Epoll.Wait event[", i, "]:POLLIN|POLLPRI event.fd:", e.events[i].Fd, " event.sid:", e.events[i].Pad, " err:", err)
 					e.DelHandler(handler)
 					e.onHandlerEventChan <- &handlerEvent{event: handlerEventOnClose, handler: handler}
 				}
 
-				if nil != sb && sb.WriteLen() > 0 {
+				if nil != sb && sb.GetWriteLen() > 0 {
+					logger.Debug("Reactor.Epoll.Wait event[", i, "]:POLLIN|POLLPRI event.fd:", e.events[i].Fd, " event.sid:", e.events[i].Pad, " read n:", sb.GetWriteLen())
 					e.onHandlerEventChan <- &handlerEvent{event: handlerEventOnRead, handler: handler}
 				}
 			}

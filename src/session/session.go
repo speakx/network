@@ -135,7 +135,7 @@ func (b *BaseSession) OnClose() {
 func (b *BaseSession) OnRead() {
 }
 
-func (b *BaseSession) SendString(v string) error {
+func (b *BaseSession) WriteString(v string) error {
 	sb := bufpool.NewSlidingBuffer(0)
 	sb.Write([]byte(v))
 	if false == b.WriteBuffer.PushSlidingBuffer(sb) {

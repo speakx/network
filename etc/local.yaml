@@ -5,7 +5,7 @@ info:
 log:
   path: 
   console: true
-  level: DEBUG
+  level: INFO
 cache:
   path:
   mmapsize: 

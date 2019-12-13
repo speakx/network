@@ -17,16 +17,16 @@ func (tcps *TCPServer) Run(addr string, maxEvent, goroutineLimit, bufSize, bufPo
 		maxEvent = 0xFFFFF
 	}
 	if 0 == goroutineLimit {
-		goroutineLimit = 200
+		goroutineLimit = 400
 	}
 	if 0 == bufSize {
-		bufSize = 1024 * 1024
+		bufSize = 1024 * 256
 	}
 	if 0 == bufPoolSize {
 		bufPoolSize = 1024 * 2
 	}
 	if 0 == bufPoolRecyleDur {
-		bufPoolRecyleDur = 1 * time.Second
+		bufPoolRecyleDur = 2 * time.Second
 	}
 
 	tcps.Server = newServer(maxEvent, goroutineLimit, bufSize, bufPoolSize, bufPoolRecyleDur)

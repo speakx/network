@@ -33,10 +33,6 @@ func (s *SlidingBuffer) Reset() {
 	s.readPos = 0
 }
 
-func (s *SlidingBuffer) WriteLen() int {
-	return s.writePos
-}
-
 func (s *SlidingBuffer) Write(data []byte) int {
 	n := len(data)
 	if n > (len(s.data) - s.writePos) {
@@ -46,6 +42,10 @@ func (s *SlidingBuffer) Write(data []byte) int {
 	copy(s.data[s.writePos:], data[:n])
 	s.writePos += n
 	return n
+}
+
+func (s *SlidingBuffer) GetWriteLen() int {
+	return s.writePos
 }
 
 func (s *SlidingBuffer) GetWrited(n int) []byte {
