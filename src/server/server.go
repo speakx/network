@@ -7,6 +7,7 @@ import (
 	"network/idmaker"
 	"network/reactor"
 	"network/register"
+	"sync"
 	"time"
 
 	"environment/logger"
@@ -15,8 +16,10 @@ import (
 type Server struct {
 	sid          int32
 	lnFD         int32
+	rw           uint32
 	listener     net.Listener
 	epollReactor *reactor.EpollReactor
+	sync.Mutex
 }
 
 func newServer(maxEvent, goroutineLimit, bufSize, bufPoolSize int, bufPoolRecyleDur time.Duration) *Server {
@@ -35,16 +38,42 @@ func (s *Server) GetId() int32 {
 	return s.sid
 }
 
-func (s *Server) GetFD() int32 {
+func (s *Server) GetFd() int32 {
 	return s.lnFD
 }
 
-func (s *Server) DoRead() (*bufpool.SlidingBuffer, error) {
+func (s *Server) SetRWState(rw uint32) {
+}
+
+func (s *Server) ModRWState(rw uint32, add bool) uint32 {
+	s.Lock()
+	if true == add {
+		s.rw |= rw
+	} else {
+		s.rw &^= rw
+	}
+	rw = s.rw
+	s.Unlock()
+	return rw
+}
+
+func (s *Server) GetRWState() uint32 {
+	return reactor.MASK_READ
+}
+
+func (s *Server) SetReadTag(tag int) {
+}
+
+func (s *Server) GetReadTag() int {
+	return 0
+}
+
+func (s *Server) DoRead() (int, error) {
 	// accept
 	conn, err := s.listener.Accept()
 	if nil != err {
 		logger.Error("Server Accept err:", err)
-		return nil, err
+		return 0, err
 	}
 	logger.Info("Server.Accept addr:", conn.RemoteAddr())
 
@@ -54,16 +83,18 @@ func (s *Server) DoRead() (*bufpool.SlidingBuffer, error) {
 	if nil != err {
 		logger.Error("Server Accept -> CreateSession err:", err)
 		conn.Close()
-		return nil, err
+		return 0, err
 	}
-	s.epollReactor.AddHandler(reactor.MASK_READ, session)
+
+	session.SetRWState(reactor.MASK_READ)
+	s.epollReactor.AddHandler(session.GetRWState(), session)
 	session.OnOpen()
 
-	return bufpool.NewSlidingBuffer(0), nil
+	return 1, nil
 }
 
-func (s *Server) DoWrite() (int, error) {
-	return 0, nil
+func (s *Server) DoWrite() (bool, error) {
+	return false, nil
 }
 
 func (s *Server) DoClose() {
@@ -106,10 +137,11 @@ func (s *Server) run(network, addr string) error {
 		return err
 	}
 	s.lnFD = int32(fdListen)
+	s.SetRWState(reactor.MASK_READ)
 
 	// register listen epoll
 	s.epollReactor.CreateReactor()
-	s.epollReactor.AddHandler(reactor.MASK_READ, s)
+	s.epollReactor.AddHandler(s.GetRWState(), s)
 	s.epollReactor.LoopReactor()
 
 	return nil

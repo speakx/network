@@ -1,11 +1,11 @@
 info:
-  addr: :10001
+  addr: :3389
   name: network
   id:
 log:
   path: 
-  console: true
-  level: INFO
+  console: false
+  level: WARN
 cache:
   path:
   mmapsize: 

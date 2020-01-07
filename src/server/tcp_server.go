@@ -1,6 +1,7 @@
 package server
 
 import (
+	"runtime"
 	"time"
 )
 
@@ -14,10 +15,10 @@ func NewTCPServer() *TCPServer {
 
 func (tcps *TCPServer) Run(addr string, maxEvent, goroutineLimit, bufSize, bufPoolSize int, bufPoolRecyleDur time.Duration) error {
 	if 0 == maxEvent {
-		maxEvent = 0xFFFFF
+		maxEvent = 0xFFF
 	}
 	if 0 == goroutineLimit {
-		goroutineLimit = 400
+		goroutineLimit = runtime.NumCPU()
 	}
 	if 0 == bufSize {
 		bufSize = 1024 * 256

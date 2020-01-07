@@ -5,26 +5,30 @@ import (
 	"io"
 	"net"
 	"network/bufpool"
+	"network/register"
 	"sync"
 	"time"
 )
 
 type connio struct {
-	handler ClientHandler
-	conn    net.Conn
-	readBuf *bufpool.SlidingBuffer
+	handler     ClientHandler
+	conn        net.Conn
+	readTag     int
+	readTagSize int
+	buf         []byte
 	sync.Mutex
 }
 
-func (c *connio) write(p []byte) (n int, err error) {
+func (c *connio) write(p []byte) error {
 	c.Lock()
 	if nil != c.conn {
-		n, err = c.conn.Write(p)
-	} else {
-		err = io.EOF
+		buf := register.DefFactory.GetTranslator().Pack(c, p)
+		_, err := c.conn.Write(buf)
+		c.Unlock()
+		return err
 	}
 	c.Unlock()
-	return n, err
+	return io.EOF
 }
 
 func (c *connio) connect() {
@@ -54,30 +58,57 @@ func (c *connio) connect() {
 }
 
 func (c *connio) loopTCPRead(conn *net.TCPConn) {
+	sb := bufpool.NewSlidingBuffer(0)
 	for {
-		buf := bufpool.NewSlidingBuffer(0)
-		n, err := conn.Read(buf.GetFreeData())
+		n, err := conn.Read(sb.GetFreeData())
 		if nil != err {
 			c.connect()
 			return
 		}
-		buf.AddWritePos(n)
+		sb.AddWritePos(n)
 
-		if nil == c.readBuf {
-			c.readBuf = buf
-			c.handler.OnRead(c.readBuf)
-			c.readBuf.ReleaseSlidingBuffer()
-			c.readBuf = nil
-		} else {
-			n1 := c.readBuf.Write(buf.GetWrited(0))
-			c.handler.OnRead(c.readBuf)
-			c.readBuf.ReleaseSlidingBuffer()
-			c.readBuf = nil
+		// unpack
+		num := 0
+		readBuf := sb.GetWrited(0)
+		readBufLen := len(readBuf)
 
-			if len(buf.GetWrited(n1)) > 0 {
-				c.readBuf = bufpool.NewSlidingBuffer(0)
-				c.readBuf.Write(buf.GetWrited(0))
+		for {
+			unpacketN, packetData := register.DefFactory.GetTranslator().UnPack(c, readBuf)
+			if 0 == unpacketN {
+				break
+			}
+
+			if nil != packetData {
+				num++
+				c.handler.OnRead(packetData)
+			}
+
+			readBuf = readBuf[unpacketN:]
+			readBufLen -= unpacketN
+			if readBufLen <= 0 {
+				break
 			}
 		}
+
+		// 处理剩下的数据
+		l := len(readBuf)
+		if l == 0 {
+			sb.Reset()
+		} else if l > 0 {
+			sb1 := bufpool.NewSlidingBuffer(0)
+			sb1.Write(readBuf)
+
+			sb.ReleaseSlidingBuffer()
+			sb = sb1
+		}
 	}
+}
+
+func (c *connio) SetReadTag(tag, tagSize int) {
+	c.readTag = tag
+	c.readTagSize = tagSize
+}
+
+func (c *connio) GetReadTag() (int, int) {
+	return c.readTag, c.readTagSize
 }

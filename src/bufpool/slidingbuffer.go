@@ -4,12 +4,23 @@ type SlidingBuffer struct {
 	data     []byte // 数据缓冲区
 	writePos int
 	readPos  int
+	release  bool
 }
 
 func NewSlidingBufferWithData(data []byte, n int) *SlidingBuffer {
 	ret := &SlidingBuffer{
 		data:     data,
 		writePos: n,
+		release:  false,
+	}
+	return ret
+}
+
+func NewSlidingBufferWithDataNoRelease(data []byte) *SlidingBuffer {
+	ret := &SlidingBuffer{
+		data:     data,
+		writePos: len(data),
+		release:  false,
 	}
 	return ret
 }
@@ -17,20 +28,25 @@ func NewSlidingBufferWithData(data []byte, n int) *SlidingBuffer {
 func NewSlidingBuffer(preAlloc int) *SlidingBuffer {
 	ret := &SlidingBuffer{
 		data: DefBufPool.Alloc(),
+		// data:    make([]byte, preAlloc),
+		release: true,
 	}
 	return ret
 }
 
 func (s *SlidingBuffer) ReleaseSlidingBuffer() {
-	DefBufPool.Collect(s.data)
-	// s.data = nil
-	// s.writePos = 0
-	// s.readPos = 0
+	if true == s.release {
+		DefBufPool.Collect(s.data)
+	}
 }
 
 func (s *SlidingBuffer) Reset() {
 	s.writePos = 0
 	s.readPos = 0
+}
+
+func (s *SlidingBuffer) GetData() []byte {
+	return s.data
 }
 
 func (s *SlidingBuffer) Write(data []byte) int {

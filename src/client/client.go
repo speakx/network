@@ -6,7 +6,7 @@ import (
 )
 
 type ClientHandler interface {
-	OnRead(sb *bufpool.SlidingBuffer)
+	OnRead([]byte)
 	Network() string
 	Addr() string
 	Timeout() time.Duration
@@ -45,13 +45,13 @@ func (b *BaseClient) InitClient(network, addr string, timeout time.Duration, c C
 	b.addr = addr
 	b.timeout = timeout
 	b.cio = &connio{handler: c}
+	b.cio.buf = bufpool.DefBufPool.Alloc()
 	b.cio.connect()
 }
 
 func (b *BaseClient) OnRead(sb *bufpool.SlidingBuffer) {
 }
 
-func (b *BaseClient) WriteString(v string) error {
-	b.cio.write([]byte(v))
-	return nil
+func (b *BaseClient) WriteByte(data []byte) error {
+	return b.cio.write(data)
 }
